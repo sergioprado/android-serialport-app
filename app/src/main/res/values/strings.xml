@@ -1,3 +1,10 @@
 <resources>
-    <string name="app_name">SerialPortApp</string>
+    <string name="app_name">Serial Port</string>
+    <string name="logo_description">Embedded Labworks</string>
+    <string name="rx_label">Received data</string>
+    <string name="clear_button">Clear</string>
+    <string name="tx_hint">Data to transmit</string>
+    <string name="tx_button">TX</string>
+    <string name="tx_error">Error on TX!</string>
+    <string name="rx_error">Error on RX!</string>
 </resources>

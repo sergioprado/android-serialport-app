@@ -1,134 +1,96 @@
 package com.labworks.serialportapp;
 
-import static android.app.admin.DevicePolicyManager.LOCK_TASK_FEATURE_NONE;
-
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.lifecycle.ViewModelProvider;
 
 import android.app.admin.DevicePolicyManager;
-import android.content.ComponentName;
-import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
-import android.os.AsyncTask;
+import android.graphics.Insets;
 import android.os.Bundle;
-import android.os.UserManager;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.EditText;
+import android.widget.ScrollView;
+import android.widget.TextView;
 
 import vendor.labworks.serialportmanager.SerialPortManager;
 
 public class MainActivity extends AppCompatActivity {
 
-    DevicePolicyManager dpm;
+    private DevicePolicyManager dpm;
+    private SerialPortViewModel model;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        new SerialPortRx().execute();
 
-        // hide title bar
-        getSupportActionBar().hide();
+        // keep the layout clear of the system bars (when visible) and of the keyboard
+        findViewById(R.id.main).setOnApplyWindowInsetsListener((v, insets) -> {
+            Insets bars = insets.getInsets(
+                    WindowInsets.Type.systemBars() | WindowInsets.Type.ime());
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            return WindowInsets.CONSUMED;
+        });
 
         // immersive mode
-        getWindow().setDecorFitsSystemWindows(false);
         WindowInsetsController controller = getWindow().getInsetsController();
         if (controller != null) {
-            controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars() | WindowInsets.Type.captionBar() | WindowInsets.Type.systemBars());
-            controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            controller.hide(WindowInsets.Type.systemBars());
+            controller.setSystemBarsBehavior(
+                    WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
         }
 
         // display always ON
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        // Create an intent filter to specify the Home category.
-        IntentFilter filter = new IntentFilter(Intent.ACTION_MAIN);
-        filter.addCategory(Intent.CATEGORY_HOME);
-        filter.addCategory(Intent.CATEGORY_DEFAULT);
+        // RX
+        TextView rxText = findViewById(R.id.rxText);
+        ScrollView rxScroll = findViewById(R.id.rxScroll);
+        model = new ViewModelProvider(this).get(SerialPortViewModel.class);
+        model.getRxData().observe(this, data -> {
+            rxText.setText(data);
+            rxScroll.post(() -> rxScroll.fullScroll(View.FOCUS_DOWN));
+        });
+        model.getRxError().observe(this, msg ->
+                showErrorMessage(getString(R.string.rx_error), msg));
 
-        // restrictions
-        String[] restrictions = {
-                UserManager.DISALLOW_FACTORY_RESET,
-                UserManager.DISALLOW_SAFE_BOOT,
-                UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA,
-                UserManager.DISALLOW_ADJUST_VOLUME,
-                UserManager.DISALLOW_ADD_USER,
-                UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS};
-
-        // get references
-        dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
-        ComponentName activity = new ComponentName(this, MainActivity.class);
-        ComponentName admin = new ComponentName(this, DevAdmin.class);
-        String[] packages = {this.getPackageName()};
-
-        // configure dpm
-        if (dpm.isDeviceOwnerApp(getPackageName())) {
-            for (String restriction: restrictions)
-                dpm.addUserRestriction(admin, restriction);
-            dpm.setLockTaskFeatures(admin, LOCK_TASK_FEATURE_NONE);
-            dpm.setLockTaskPackages(admin, packages);
-            dpm.addPersistentPreferredActivity(admin, filter, activity);
-        }
+        dpm = getSystemService(DevicePolicyManager.class);
     }
 
-    public void onResume() {
+    @Override
+    protected void onResume() {
         super.onResume();
+        // lock task mode, if allowed by the device owner
         if (dpm.isLockTaskPermitted(getPackageName()))
             startLockTask();
     }
 
     private void showErrorMessage(String title, String msg) {
-        AlertDialog alertDialog =
-                new AlertDialog.Builder (MainActivity.this).create();
-        alertDialog.setTitle(title);
-        alertDialog.setMessage(msg);
-        alertDialog.show();
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(msg)
+                .show();
     }
 
-    public void serialPortTx(View view)
-    {
-        EditText editText = (EditText) findViewById(R.id.editText);
+    public void clearRx(View view) {
+        model.clearRxData();
+    }
+
+    public void serialPortTx(View view) {
+        EditText txText = findViewById(R.id.txText);
 
         try {
             SerialPortManager sp = SerialPortManager.getInstance();
-            for (int i = 0; i < editText.getText().length(); i++) {
-                byte b = (byte) editText.getText().charAt(i);
+            for (int i = 0; i < txText.getText().length(); i++) {
+                byte b = (byte) txText.getText().charAt(i);
                 sp.tx(b);
             }
-            editText.getText().clear();
+            txText.getText().clear();
         } catch (Exception e) {
-            showErrorMessage("Error on TX!", e.getMessage());
-        }
-    }
-
-    @SuppressWarnings("deprecation")
-    class SerialPortRx extends AsyncTask<Void,Void,Byte> {
-        private String errorMsg;
-
-        @Override
-        protected Byte doInBackground(Void... voids) {
-            try {
-                SerialPortManager sp = SerialPortManager.getInstance();
-                return sp.rx();
-            } catch (Exception e) {
-                errorMsg = e.getMessage();
-                return 0;
-            }
-        }
-
-        @Override
-        protected void onPostExecute(Byte b) {
-            if (errorMsg == null) {
-                EditText editText = (EditText) findViewById(R.id.editText);
-                editText.getText().append((char) b.byteValue());
-                new SerialPortRx().execute();
-            } else {
-                showErrorMessage("Error in RX!", errorMsg);
-            }
+            showErrorMessage(getString(R.string.tx_error), e.getMessage());
         }
     }
 }
